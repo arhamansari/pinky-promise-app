@@ -1,0 +1,12 @@
+# Python
+backend/venv/
+*.pyc
+__pycache__/
+
+# Node/React
+pinky-promise-app/node_modules/
+pinky-promise-app/.pnp
+pinky-promise-app/.pnp.js
+
+# General
+.env
