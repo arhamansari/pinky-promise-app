@@ -1,31 +1,36 @@
 # authentication/serializers.py
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from django.contrib.auth.password_validation import validate_password
+
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        # Add custom claims
+        token['username'] = user.username
+        # You can add more user data if needed
+        return token
+        
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        # Add user data to response
+        from authentication.serializers import UserSerializer  # Import your user serializer
+        data['user'] = UserSerializer(self.user).data
+        return data
+    
 
 class UserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True)
+    
     class Meta:
         model = User
-        fields = ('id', 'username', 'email')
-
-class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
-    password2 = serializers.CharField(write_only=True, required=True)
-
-    class Meta:
-        model = User
-        fields = ('username', 'email', 'password', 'password2')
-
-    def validate(self, attrs):
-        if attrs['password'] != attrs['password2']:
-            raise serializers.ValidationError({"password": "Password fields didn't match."})
-        return attrs
-
+        fields = ['username', 'email', 'password']
+    
     def create(self, validated_data):
         user = User.objects.create_user(
             username=validated_data['username'],
-            email=validated_data['email']
+            email=validated_data.get('email', ''),
+            password=validated_data['password']
         )
-        user.set_password(validated_data['password'])
-        user.save()
         return user

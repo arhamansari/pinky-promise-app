@@ -1,4 +1,4 @@
-// Step 4: Update App.js routing
+// src/App.js
 import React from 'react';
 import './App.css';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -17,24 +17,31 @@ import ProtectedRoute from './components/ProtectedRoute';
 function App() {
   return (
     <Router>
-      <NavigationBar />
-      <Routes>
-        <Route path="/" element={<Hero />} />
-        <Route path="/auth" element={<AuthPage />} />
-        <Route path="/consult" element={<DoctorConsult />} />
-        
-        {/* Protected Routes */}
-        <Route element={<ProtectedRoute />}>
-          <Route path="/chat" element={<ChatPage />} />
-        </Route>
-
-        <Route path="/unauthorized" element={<UnauthorizedPage />} />
-        
-        {/* Existing routes */}
-        <Route path="/testimonials" element={<Testimonials />} />
-        <Route path="/experts" element={<ExpertSection />} />
-        <Route path="/contact" element={<ContactCustmerSprt />} />
-      </Routes>
+      <div className="App">
+        <NavigationBar />
+        <Routes>
+          {/* Public routes */}
+          <Route path="/" element={
+            <>
+              <Hero />
+              <ExpertSection />
+              <Testimonials />
+              <ContactCustmerSprt />
+            </>
+          } />
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/consult" element={<DoctorConsult />} />
+          <Route path="/unauthorized" element={<UnauthorizedPage />} />
+          <Route path="/testimonials" element={<Testimonials />} />
+          <Route path="/experts" element={<ExpertSection />} />
+          <Route path="/contact" element={<ContactCustmerSprt />} />
+          
+          {/* Protected Routes */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/chat" element={<ChatPage />} />
+          </Route>
+        </Routes>
+      </div>
     </Router>
   );
 }

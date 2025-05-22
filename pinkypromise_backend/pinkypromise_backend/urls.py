@@ -1,16 +1,15 @@
-# pinkypromise_backend/urls.py
+# pinkypromise_backend/urls.py (Main project URLs)
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework.authtoken import views
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, TokenVerifyView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # JWT endpoints
+    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
+    # Include the auth app URLs
     path('api/auth/', include('authentication.urls')),
-    # path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    # path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    # # For token authentication
-    # path('api-token-auth/', views.obtain_auth_token),
-    # # Include accounts URLs
-    # path('api/accounts/', include('accounts.urls')),
+    # Other URL patterns...
 ]
