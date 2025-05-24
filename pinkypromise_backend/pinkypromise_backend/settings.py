@@ -92,10 +92,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",  # Alternative localhost address
 ]
 
-# If your React app runs on a different port, add it here
-# For example, if it runs on port 8080:
-# "http://localhost:8080",
-# "http://127.0.0.1:8080",
 
 # Additional CORS settings
 CORS_ALLOW_CREDENTIALS = True

@@ -11,6 +11,7 @@ const axiosInstance = axios.create({
 });
 
 // Add a request interceptor to include the JWT token
+// Arham : Sends Token with every API requests to authenticate users in a web appl.
 axiosInstance.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken');

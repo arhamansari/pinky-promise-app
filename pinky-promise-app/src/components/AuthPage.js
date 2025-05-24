@@ -33,7 +33,7 @@ const AuthPage = () => {
           localStorage.setItem('refreshToken', response.data.refresh);
           
           // Redirect after successful login
-          navigate('/');
+          navigate('/chat');
         }
       } else {
         // Registration
