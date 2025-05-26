@@ -52,6 +52,18 @@ REST_FRAMEWORK = {
     ),
 }
 
+# reCAPTCHA settings
+RECAPTCHA_SITE_KEY = '6LdMSUgrAAAAAFKCwbzfd18UmzlY7aez137XtsJh'
+RECAPTCHA_SECRET_KEY = '6LdMSUgrAAAAAKVneeLlUr0DaAp_8kGd1LgudOdo'
+
+# Update your REST_FRAMEWORK settings to use the custom token view
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
+
+
 # JWT settings
 from datetime import timedelta
 
