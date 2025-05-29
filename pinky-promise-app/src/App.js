@@ -13,37 +13,43 @@ import ChatPage from './components/ChatPage';
 import UnauthorizedPage from './components/UnauthorizedPage';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
+import { useAuth } from './hooks/useAuth';
 
 function App() {
-  return (
-    <Router>
-      <div className="App">
-        <NavigationBar />
-        <Routes>
-          {/* Public routes */}
-          <Route path="/" element={
-            <>
-              <Hero />
-              <ExpertSection />
-              <Testimonials />
-              <ContactCustmerSprt />
-            </>
-          } />
-          <Route path="/auth" element={<AuthPage />} />
-          <Route path="/consult" element={<DoctorConsult />} />
-          <Route path="/unauthorized" element={<UnauthorizedPage />} />
-          <Route path="/testimonials" element={<Testimonials />} />
-          <Route path="/experts" element={<ExpertSection />} />
-          <Route path="/contact" element={<ContactCustmerSprt />} />
-          
-          {/* Protected Routes */}
-          <Route element={<ProtectedRoute />}>
-            <Route path="/chat" element={<ChatPage />} />
-          </Route>
-        </Routes>
-      </div>
-    </Router>
-  );
+    const { loading } = useAuth();
+
+    if (loading) {
+        return (
+            <div className="d-flex justify-content-center align-items-center" style={{ height: '100vh' }}>
+                <div className="spinner-border" role="status">
+                    <span className="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <Router>
+            <div className="App">
+                <NavigationBar />
+                <Routes>
+                    {/* Public routes */}
+                    <Route path="/" element={<Hero />} />
+                    <Route path="/testimonials" element={<Testimonials />} />
+                    <Route path="/experts" element={<ExpertSection />} />
+                    <Route path="/contact" element={<ContactCustmerSprt />} />
+                    <Route path="/doctor-consult" element={<DoctorConsult />} />
+                    <Route path="/auth" element={<AuthPage />} />
+                    <Route path="/unauthorized" element={<UnauthorizedPage />} />
+                    
+                    {/* Protected Routes */}
+                    <Route element={<ProtectedRoute />}>
+                        <Route path="/chat" element={<ChatPage />} />
+                    </Route>
+                </Routes>
+            </div>
+        </Router>
+    );
 }
 
 export default App;
