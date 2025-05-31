@@ -37,6 +37,7 @@ docker ps
 ```bash
 git clone <repository-url>
 cd pinky-promise-app
+git checkout -b localdeployment origin/localdeployment
 
 # Start the application (this handles everything automatically)
 ./start.sh
@@ -72,7 +73,7 @@ CREATE TABLE
 ==================================================
 🎉 Application is now running!
 
-📱 Frontend: http://localhost
+📱 Frontend: http://localhost:80
 🔧 Backend API: http://localhost:5001
 🗄️  Database: localhost:5432
 
