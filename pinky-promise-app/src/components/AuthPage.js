@@ -8,7 +8,7 @@ import './AuthPage.css';
 
 const AuthPage = () => {
     const [isLogin, setIsLogin] = useState(true);
-    const [username, setUsername] = useState('');
+    const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -40,34 +40,38 @@ const AuthPage = () => {
             return;
         }
 
+        // Store the current mode to handle post-request logic
+        const currentMode = isLogin;
+
         try {
             if (isLogin) {
-                const response = await axiosInstance.post('/api/auth/login/', {
-                    username,
+                const response = await axiosInstance.post('/api/auth/login', {
+                    email,
                     password,
-                    captcha_token: captchaToken
+                    captchaToken: captchaToken
                 });
 
-                if (response.data.access) {
-                    localStorage.setItem('accessToken', response.data.access);
-                    localStorage.setItem('refreshToken', response.data.refresh);
+                if (response.data.accessToken) {
+                    localStorage.setItem('accessToken', response.data.accessToken);
+                    localStorage.setItem('refreshToken', response.data.refreshToken);
                     checkAuthStatus();
                     window.dispatchEvent(new CustomEvent('authStateChanged'));
                     navigate('/chat');
                 }
             } else {
-                const response = await axiosInstance.post('/api/auth/register/', {
-                    username,
+                const response = await axiosInstance.post('/api/auth/register', {
+                    name,
                     email,
                     password,
-                    captcha_token: captchaToken
+                    captchaToken: captchaToken
                 });
-
-                setIsLogin(true);
-                setError('Registration successful! Please check your email and then login.');
-                setUsername('');
-                setEmail('');
+                
+                // Keep the captcha token valid for login
+                setError('Registration successful! You can now login with your credentials.');
+                setName('');
+                // Don't clear email to make login easier
                 setPassword('');
+                setIsLogin(true);
             }
         } catch (err) {
             console.error('Auth error:', err);
@@ -77,14 +81,27 @@ const AuthPage = () => {
             } else if (err.response?.data?.detail) {
                 setError(err.response.data.detail);
             } else if (err.response?.data?.error) {
-                setError(err.response.data.error);
+                // Handle specific captcha errors with clearer messages
+                if (err.response.data.error === "Captcha verification failed") {
+                    setError('Captcha verification failed. Please try again with a new captcha.');
+                    
+                    // Always reset captcha on verification failure
+                    if (recaptchaRef.current) {
+                        recaptchaRef.current.reset();
+                        setCaptchaToken('');
+                    }
+                } else {
+                    setError(err.response.data.error);
+                }
             } else if (err.code === 'ERR_NETWORK') {
                 setError('Cannot connect to server. Please check if the backend is running.');
             } else {
                 setError(isLogin ? 'Login failed. Please try again.' : 'Registration failed. Please try again.');
             }
 
-            if (recaptchaRef.current) {
+            // Only reset captcha on non-captcha errors if necessary
+            // We've already handled captcha verification errors above
+            if (!err.response?.data?.error?.includes("Captcha") && recaptchaRef.current) {
                 recaptchaRef.current.reset();
                 setCaptchaToken('');
             }
@@ -96,13 +113,22 @@ const AuthPage = () => {
     const toggleAuthMode = () => {
         setIsLogin(!isLogin);
         setError('');
-        setUsername('');
-        setEmail('');
-        setPassword('');
-        setCaptchaToken('');
-        if (recaptchaRef.current) {
-            recaptchaRef.current.reset();
+        
+        // Only clear fields that need to be cleared
+        if (!isLogin) { // Switching from signup to login
+            setName('');
+            // Keep email for convenience
+        } else { // Switching from login to signup
+            // Clear all fields for new registration
+            setName('');
+            setEmail('');
         }
+        
+        // Always clear password for security
+        setPassword('');
+        
+        // Don't reset captcha when toggling - it's still valid
+        // and prevents unnecessary captcha solving
     };
 
     return (
@@ -122,33 +148,33 @@ const AuthPage = () => {
                 )}
                 
                 <form onSubmit={handleSubmit} className="auth-form-content">
-                    <div className="form-group">
-                        <label htmlFor="username" className="form-label">Username</label>
-                        <input
-                            id="username"
-                            type="text"
-                            className="form-input"
-                            placeholder="Enter your username"
-                            value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                            required
-                        />
-                    </div>
-                    
                     {!isLogin && (
                         <div className="form-group">
-                            <label htmlFor="email" className="form-label">Email</label>
+                            <label htmlFor="name" className="form-label">Full Name</label>
                             <input
-                                id="email"
-                                type="email"
+                                id="name"
+                                type="text"
                                 className="form-input"
-                                placeholder="Enter your email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
+                                placeholder="Enter your full name"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
                                 required
                             />
                         </div>
                     )}
+                    
+                    <div className="form-group">
+                        <label htmlFor="email" className="form-label">Email</label>
+                        <input
+                            id="email"
+                            type="email"
+                            className="form-input"
+                            placeholder="Enter your email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                        />
+                    </div>
                     
                     <div className="form-group">
                         <label htmlFor="password" className="form-label">Password</label>
@@ -166,10 +192,13 @@ const AuthPage = () => {
                     <div className="form-group captcha-group">
                         <ReCAPTCHA
                             ref={recaptchaRef}
-                            sitekey="6LdMSUgrAAAAAFKCwbzfd18UmzlY7aez137XtsJh"
+                            sitekey={process.env.REACT_APP_RECAPTCHA_SITE_KEY || "6LdMSUgrAAAAAFKCwbzfd18UmzlY7aez137XtsJh"}
                             onChange={handleCaptchaChange}
                             theme="light"
                         />
+                        {!captchaToken && (
+                            <p className="captcha-hint">Please complete the captcha verification</p>
+                        )}
                     </div>
                     
                     <button 
