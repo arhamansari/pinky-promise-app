@@ -1,6 +1,6 @@
 #!/bin/bash
-
 # Helper script for local deployment testing
+
 set -e
 
 # Navigate to project root

@@ -1,13 +1,44 @@
-# Pinky Promise App
+# 🎯 Pinky Promise App
 
-A full-stack web application built with React frontend, Node.js backend, and PostgreSQL database, all containerized with Docker.
+A production-ready full-stack web application with React frontend, Node.js backend, and PostgreSQL database, deployed on Google Cloud Platform with Kubernetes.
 
 ## 🏗️ Architecture
 
-- **Frontend**: React application served with Nginx
-- **Backend**: Node.js/Express API server
-- **Database**: PostgreSQL with UUID extension
-- **Deployment**: Docker Compose orchestration
+- **Frontend**: React application with modern UI/UX
+- **Backend**: Node.js/Express RESTful API
+- **Database**: PostgreSQL with read replicas
+- **Infrastructure**: Google Cloud Platform (GKE, Cloud SQL, VPC)
+- **Deployment**: Kubernetes with auto-scaling
+- **Monitoring**: Real-time dashboards and alerting
+- **Security**: Workload Identity, Secret Manager, private networking
+
+## 📁 Project Structure
+
+```
+pinky-promise-app/
+├── pinky-promise-app/    # React frontend application
+├── backend/              # Node.js backend API
+├── terraform/            # Infrastructure as Code (GCP)
+├── kubernetes/           # Kubernetes manifests
+├── deploy/               # Deployment configurations
+├── docs/                 # Documentation
+│   ├── architecture/     # Architecture documentation
+│   ├── deployment/       # Deployment guides
+│   └── development/      # Development setup
+└── .github/              # CI/CD workflows
+```
+
+## 🎯 Current Status
+
+**✅ Phase 1 Complete**: Infrastructure Foundation
+- GKE Autopilot cluster deployed
+- Cloud SQL PostgreSQL with read replica
+- VPC with secure networking
+- Secret Manager integration
+- Monitoring and alerting setup
+- Path-based CI/CD pipeline
+
+**🚀 Ready for Phase 2**: Application Deployment
 
 ## 📋 Prerequisites
 

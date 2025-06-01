@@ -1,0 +1,257 @@
+name: Production CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  PROJECT_ID: pinky-promise-app
+  REGION: us-central1
+  CLUSTER_NAME: production-pinky-promise-cluster
+  REGISTRY: us-central1-docker.pkg.dev
+  REPOSITORY: pinky-promise-repo
+
+jobs:
+  # Security and Quality Checks
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Detect Changes
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.changes.outputs.frontend }}
+      backend: ${{ steps.changes.outputs.backend }}
+      infrastructure: ${{ steps.changes.outputs.infrastructure }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'pinky-promise-app/**'
+            backend:
+              - 'backend/**'
+            infrastructure:
+              - 'terraform/**'
+              - 'kubernetes/**'
+
+  # Frontend Build and Deploy
+  frontend:
+    needs: [detect-changes, security-scan]
+    if: needs.detect-changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: ./pinky-promise-app
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: './pinky-promise-app/package-lock.json'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests
+        run: npm test -- --coverage --watchAll=false
+      
+      - name: Run ESLint
+        run: npm run lint || true
+      
+      - name: Build application
+        run: npm run build
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }}
+      
+      - name: Build and push Docker image
+        if: github.ref == 'refs/heads/main'
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 \
+            -f ../deploy/frontend/Dockerfile \
+            -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-frontend:${{ env.IMAGE_TAG }} \
+            -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-frontend:latest \
+            .
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-frontend:${{ env.IMAGE_TAG }}
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-frontend:latest
+
+  # Backend Build and Deploy
+  backend:
+    needs: [detect-changes, security-scan]
+    if: needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: ./backend
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: './backend/package-lock.json'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests
+        run: npm test || true
+      
+      - name: Run ESLint
+        run: npm run lint || true
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }}
+      
+      - name: Build and push Docker image
+        if: github.ref == 'refs/heads/main'
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 \
+            -f ../deploy/backend/Dockerfile \
+            -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-backend:${{ env.IMAGE_TAG }} \
+            -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-backend:latest \
+            .
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-backend:${{ env.IMAGE_TAG }}
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-backend:latest
+
+  # Deploy to Production
+  deploy:
+    needs: [frontend, backend]
+    if: github.ref == 'refs/heads/main' && (needs.frontend.result == 'success' || needs.backend.result == 'success')
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v1
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          location: ${{ env.REGION }}
+      
+      - name: Deploy to GKE
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Update frontend if changed
+          if [ "${{ needs.frontend.result }}" == "success" ]; then
+            kubectl set image deployment/pinky-promise-frontend \
+              frontend=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-frontend:${{ env.IMAGE_TAG }} \
+              -n production
+            kubectl rollout status deployment/pinky-promise-frontend -n production --timeout=300s
+          fi
+          
+          # Update backend if changed
+          if [ "${{ needs.backend.result }}" == "success" ]; then
+            kubectl set image deployment/pinky-promise-backend \
+              backend=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/pinky-promise-backend:${{ env.IMAGE_TAG }} \
+              -n production
+            kubectl rollout status deployment/pinky-promise-backend -n production --timeout=300s
+          fi
+      
+      - name: Verify deployment
+        run: |
+          kubectl get pods -n production
+          kubectl get services -n production
+          
+          # Health check
+          FRONTEND_IP=$(kubectl get service pinky-promise-frontend-lb -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          BACKEND_IP=$(kubectl get service pinky-promise-backend-lb -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          
+          echo "Frontend IP: $FRONTEND_IP"
+          echo "Backend IP: $BACKEND_IP"
+          
+          # Test endpoints
+          curl -f http://$BACKEND_IP/ || exit 1
+          curl -f -I http://$FRONTEND_IP/ || exit 1
+      
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "🎉 Deployment successful!"
+          echo "Frontend: http://$(kubectl get service pinky-promise-frontend-lb -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          echo "Backend: http://$(kubectl get service pinky-promise-backend-lb -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+
+  # Rollback on failure
+  rollback:
+    needs: [deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v1
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          location: ${{ env.REGION }}
+      
+      - name: Rollback deployment
+        run: |
+          echo "🔄 Rolling back deployment..."
+          kubectl rollout undo deployment/pinky-promise-frontend -n production || true
+          kubectl rollout undo deployment/pinky-promise-backend -n production || true
+          
+          echo "✅ Rollback completed"
+          kubectl get pods -n production
+

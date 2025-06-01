@@ -1,0 +1,190 @@
+name: Pinky Promise App CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PROJECT_ID: pinky-promise-app
+  REGION: us-central1
+  CLUSTER_NAME: production-pinky-promise-cluster
+
+jobs:
+  # Detect what changed
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.changes.outputs.frontend }}
+      backend: ${{ steps.changes.outputs.backend }}
+      terraform: ${{ steps.changes.outputs.terraform }}
+      kubernetes: ${{ steps.changes.outputs.kubernetes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'pinky-promise-app/**'
+            backend:
+              - 'backend/**'
+            terraform:
+              - 'terraform/**'
+            kubernetes:
+              - 'kubernetes/**'
+              - 'deploy/**'
+
+  # Frontend CI/CD
+  frontend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./pinky-promise-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: './pinky-promise-app/package-lock.json'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests
+        run: npm run test:ci
+      
+      - name: Build frontend
+        run: npm run build
+      
+      - name: Build Docker image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker build -t gcr.io/${{ env.PROJECT_ID }}/pinky-promise-frontend:${{ github.sha }} .
+          docker tag gcr.io/${{ env.PROJECT_ID }}/pinky-promise-frontend:${{ github.sha }} gcr.io/${{ env.PROJECT_ID }}/pinky-promise-frontend:latest
+
+  # Backend CI/CD
+  backend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: './backend/package-lock.json'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests
+        run: npm test
+      
+      - name: Run linting
+        run: npm run lint
+      
+      - name: Build Docker image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker build -t gcr.io/${{ env.PROJECT_ID }}/pinky-promise-backend:${{ github.sha }} .
+          docker tag gcr.io/${{ env.PROJECT_ID }}/pinky-promise-backend:${{ github.sha }} gcr.io/${{ env.PROJECT_ID }}/pinky-promise-backend:latest
+
+  # Infrastructure validation
+  terraform:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.terraform == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Terraform Format Check
+        run: terraform fmt -check
+      
+      - name: Terraform Init
+        run: terraform init
+      
+      - name: Terraform Validate
+        run: terraform validate
+      
+      - name: Terraform Plan
+        if: github.event_name == 'pull_request'
+        run: terraform plan
+
+  # Kubernetes validation
+  kubernetes:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.kubernetes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Kubernetes manifests
+        run: |
+          # Install kubeval for validation
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin
+          
+          # Validate all YAML files
+          find kubernetes/ -name '*.yaml' -o -name '*.yml' | xargs kubeval
+
+  # Deploy to production (only on main branch)
+  deploy:
+    needs: [detect-changes, frontend, backend, terraform, kubernetes]
+    if: github.ref == 'refs/heads/main' && (needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.backend == 'true')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+      
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker
+      
+      - name: Push images to GCR
+        run: |
+          if [ "${{ needs.detect-changes.outputs.frontend }}" == "true" ]; then
+            docker push gcr.io/${{ env.PROJECT_ID }}/pinky-promise-frontend:${{ github.sha }}
+            docker push gcr.io/${{ env.PROJECT_ID }}/pinky-promise-frontend:latest
+          fi
+          
+          if [ "${{ needs.detect-changes.outputs.backend }}" == "true" ]; then
+            docker push gcr.io/${{ env.PROJECT_ID }}/pinky-promise-backend:${{ github.sha }}
+            docker push gcr.io/${{ env.PROJECT_ID }}/pinky-promise-backend:latest
+          fi
+      
+      - name: Deploy to GKE
+        run: |
+          gcloud container clusters get-credentials ${{ env.CLUSTER_NAME }} --region ${{ env.REGION }}
+          
+          if [ "${{ needs.detect-changes.outputs.frontend }}" == "true" ]; then
+            kubectl set image deployment/pinky-promise-frontend frontend=gcr.io/${{ env.PROJECT_ID }}/pinky-promise-frontend:${{ github.sha }} -n production
+          fi
+          
+          if [ "${{ needs.detect-changes.outputs.backend }}" == "true" ]; then
+            kubectl set image deployment/pinky-promise-backend backend=gcr.io/${{ env.PROJECT_ID }}/pinky-promise-backend:${{ github.sha }} -n production
+          fi
+          
+          # Wait for rollout to complete
+          kubectl rollout status deployment/pinky-promise-frontend -n production --timeout=300s || true
+          kubectl rollout status deployment/pinky-promise-backend -n production --timeout=300s || true
+

@@ -1,0 +1,24 @@
+# Global owners - require approval for any changes
+* @ashhar001
+
+# Infrastructure changes require DevOps approval
+/terraform/ @ashhar001
+/kubernetes/ @ashhar001
+/deploy/ @ashhar001
+
+# Application code - can be expanded to include team members
+/pinky-promise-app/ @ashhar001
+/backend/ @ashhar001
+
+# Documentation - anyone can contribute but needs review
+/docs/ @ashhar001
+/README.md @ashhar001
+
+# CI/CD and workflows - require careful review
+/.github/ @ashhar001
+
+# Critical files that need extra attention
+/terraform/main.tf @ashhar001
+/terraform/variables.tf @ashhar001
+/.github/workflows/ @ashhar001
+
