@@ -1,0 +1,161 @@
+name: Infrastructure CI/CD
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+    paths:
+      - 'terraform/**'
+      - 'kubernetes/**'
+      - '.github/workflows/infrastructure.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'terraform/**'
+      - 'kubernetes/**'
+
+env:
+  TF_VERSION: '1.5.7'
+  PROJECT_ID: 'pinky-promise-app'
+  REGION: 'us-central1'
+  ZONE: 'us-central1-a'
+
+jobs:
+  terraform-validate:
+    name: 'Terraform Validate'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+    
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ env.PROJECT_ID }}
+    
+    - name: Terraform Format Check
+      run: terraform fmt -check -recursive
+    
+    - name: Terraform Init
+      run: |
+        terraform init \
+          -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+          -backend-config="prefix=terraform/state"
+    
+    - name: Terraform Validate
+      run: terraform validate
+    
+    - name: Terraform Plan
+      run: |
+        terraform plan \
+          -var="project_id=${{ env.PROJECT_ID }}" \
+          -var="region=${{ env.REGION }}" \
+          -var="zone=${{ env.ZONE }}" \
+          -out=tfplan
+    
+    - name: Upload Plan
+      uses: actions/upload-artifact@v4
+      if: github.ref == 'refs/heads/main'
+      with:
+        name: tfplan
+        path: terraform/tfplan
+        retention-days: 1
+
+  terraform-deploy:
+    name: 'Terraform Deploy'
+    runs-on: ubuntu-latest
+    needs: terraform-validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    defaults:
+      run:
+        working-directory: ./terraform
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+    
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ env.PROJECT_ID }}
+    
+    - name: Download Plan
+      uses: actions/download-artifact@v4
+      with:
+        name: tfplan
+        path: terraform/
+    
+    - name: Terraform Init
+      run: |
+        terraform init \
+          -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+          -backend-config="prefix=terraform/state"
+    
+    - name: Terraform Apply
+      run: terraform apply -auto-approve tfplan
+    
+    - name: Get cluster credentials
+      run: |
+        gcloud container clusters get-credentials pinky-promise-cluster \
+          --zone ${{ env.ZONE }} \
+          --project ${{ env.PROJECT_ID }}
+    
+    - name: Install ArgoCD
+      run: |
+        # Create ArgoCD namespace
+        kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Install ArgoCD
+        kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+        
+        # Wait for ArgoCD to be ready
+        kubectl wait --for=condition=available --timeout=600s deployment/argocd-server -n argocd
+    
+    - name: Configure ArgoCD Applications
+      run: |
+        # Apply ArgoCD application configurations
+        kubectl apply -f ../kubernetes/argocd/ || echo "ArgoCD configurations will be applied after setup"
+
+  security-scan:
+    name: 'Security Scan'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: './terraform'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
+

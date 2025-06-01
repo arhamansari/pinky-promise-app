@@ -1,3 +1,259 @@
+# Pinky Promise Infrastructure & GitOps
+
+This repository contains the infrastructure-as-code and GitOps configuration for the Pinky Promise application.
+
+## 🏗️ Architecture Overview
+
+### Repository Strategy
+- **Infrastructure Repository (this repo)**: Contains Terraform for GCP infrastructure, Kubernetes base manifests, and ArgoCD configuration
+- **Application Repository**: Contains application source code and application-specific Kubernetes manifests
+
+### Infrastructure Components
+- **GKE Cluster**: Google Kubernetes Engine cluster with autoscaling
+- **Cloud SQL**: PostgreSQL database with backup and high availability
+- **VPC Network**: Custom VPC with public/private subnets
+- **ArgoCD**: GitOps tool for continuous deployment
+- **Monitoring**: Google Cloud Monitoring and Alerting
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+1. **Google Cloud Project**: Set up a GCP project
+2. **Service Account**: Create a service account with necessary permissions
+3. **Terraform State Bucket**: Create a GCS bucket for Terraform state
+4. **GitHub Secrets**: Configure repository secrets
+
+### Step 1: GCP Setup
+
+```bash
+# 1. Create a new GCP project or use existing
+export PROJECT_ID="your-project-id"
+gcloud config set project $PROJECT_ID
+
+# 2. Enable required APIs
+gcloud services enable container.googleapis.com
+gcloud services enable sqladmin.googleapis.com
+gcloud services enable compute.googleapis.com
+gcloud services enable servicenetworking.googleapis.com
+gcloud services enable cloudresourcemanager.googleapis.com
+gcloud services enable artifactregistry.googleapis.com
+
+# 3. Create a service account for GitHub Actions
+gcloud iam service-accounts create github-actions \
+    --description="Service account for GitHub Actions" \
+    --display-name="GitHub Actions"
+
+# 4. Grant necessary permissions
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/editor"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/container.admin"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/cloudsql.admin"
+
+# 5. Create and download service account key
+gcloud iam service-accounts keys create github-actions-key.json \
+    --iam-account=github-actions@$PROJECT_ID.iam.gserviceaccount.com
+
+# 6. Create Terraform state bucket
+gsutil mb gs://$PROJECT_ID-terraform-state
+gsutil versioning set on gs://$PROJECT_ID-terraform-state
+```
+
+### Step 2: GitHub Secrets Configuration
+
+Add the following secrets to your GitHub repository:
+
+| Secret Name | Description | Value |
+|-------------|-------------|-------|
+| `GCP_SA_KEY` | Service account JSON key | Contents of `github-actions-key.json` |
+| `TF_STATE_BUCKET` | Terraform state bucket | `your-project-id-terraform-state` |
+
+### Step 3: Update Configuration
+
+1. **Update Terraform variables** in `terraform/terraform.tfvars`:
+```hcl
+project_id = "your-project-id"
+environment = "production"
+alert_email = "your-email@example.com"
+```
+
+2. **Update ArgoCD Application** in `kubernetes/argocd/pinky-promise-app.yaml`:
+```yaml
+source:
+  repoURL: https://github.com/YOUR_USERNAME/pinky-promise-app-source
+```
+
+3. **Update project ID** in `.github/workflows/infrastructure.yml`:
+```yaml
+env:
+  PROJECT_ID: 'your-project-id'
+```
+
+## 🔄 CI/CD Pipeline
+
+### Infrastructure Pipeline
+
+**Non-main branches:**
+- ✅ Terraform Format Check
+- ✅ Terraform Validate
+- ✅ Terraform Plan
+- ✅ Security Scan
+
+**Main branch (additional steps):**
+- ✅ Terraform Apply
+- ✅ ArgoCD Installation
+- ✅ ArgoCD Configuration
+
+### Application Pipeline (in separate repo)
+
+- ✅ Build and Test
+- ✅ Build Docker Images
+- ✅ Push to Artifact Registry
+- ✅ Update Kubernetes Manifests
+- ✅ ArgoCD Auto-Deploy
+
+## 📁 Repository Structure
+
+```
+.
+├── .github/
+│   └── workflows/
+│       └── infrastructure.yml      # Infrastructure CI/CD pipeline
+├── terraform/
+│   ├── main.tf                     # Main Terraform configuration
+│   ├── variables.tf                # Variable definitions
+│   ├── outputs.tf                  # Output definitions
+│   ├── terraform.tfvars.example    # Example variables
+│   └── modules/
+│       ├── networking/             # VPC and networking
+│       ├── gke-cluster/           # GKE cluster configuration
+│       ├── database/              # Cloud SQL configuration
+│       ├── security/              # IAM and security
+│       └── monitoring/            # Monitoring and alerting
+└── kubernetes/
+    ├── argocd/
+    │   ├── pinky-promise-project.yaml  # ArgoCD project
+    │   └── pinky-promise-app.yaml      # ArgoCD application
+    └── manifests/                       # Base Kubernetes manifests
+```
+
+## 🔧 Manual Operations
+
+### Deploy Infrastructure
+
+```bash
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/pinky-promise-infrastructure
+cd pinky-promise-infrastructure
+
+# Initialize Terraform
+cd terraform
+terraform init \
+  -backend-config="bucket=your-project-id-terraform-state" \
+  -backend-config="prefix=terraform/state"
+
+# Plan the deployment
+terraform plan -var-file="terraform.tfvars"
+
+# Apply the configuration
+terraform apply -var-file="terraform.tfvars"
+```
+
+### Access ArgoCD UI
+
+```bash
+# Get cluster credentials
+gcloud container clusters get-credentials pinky-promise-cluster \
+  --zone us-central1-a --project your-project-id
+
+# Port forward to ArgoCD server
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+
+# Get initial admin password
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d
+
+# Access ArgoCD at https://localhost:8080
+# Username: admin
+# Password: (from above command)
+```
+
+### Monitor Applications
+
+```bash
+# Check ArgoCD applications
+kubectl get applications -n argocd
+
+# Check application pods
+kubectl get pods -n pinky-promise
+
+# Check application logs
+kubectl logs -f deployment/pinky-promise-backend -n pinky-promise
+kubectl logs -f deployment/pinky-promise-frontend -n pinky-promise
+```
+
+## 🔒 Security Considerations
+
+- **Service Account Permissions**: Use principle of least privilege
+- **Secrets Management**: Store sensitive data in Google Secret Manager
+- **Network Security**: Private GKE nodes with authorized networks
+- **Image Security**: Regular vulnerability scanning with Trivy
+- **RBAC**: Proper Kubernetes role-based access control
+
+## 📊 Monitoring & Alerting
+
+- **Google Cloud Monitoring**: Infrastructure and application metrics
+- **Uptime Checks**: Application availability monitoring
+- **Log Aggregation**: Centralized logging with Google Cloud Logging
+- **Alerting**: Email and Slack notifications for critical issues
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+1. **Terraform Apply Fails**
+   - Check service account permissions
+   - Verify API enablement
+   - Check quota limits
+
+2. **ArgoCD Sync Issues**
+   - Verify repository access
+   - Check application configuration
+   - Review ArgoCD logs
+
+3. **Application Deployment Issues**
+   - Check image registry access
+   - Verify Kubernetes resource limits
+   - Review pod logs
+
+### Support
+
+For issues and questions:
+1. Check the troubleshooting section
+2. Review GitHub Actions logs
+3. Check ArgoCD application status
+4. Review Google Cloud Console for infrastructure issues
+
+## 🤝 Contributing
+
+1. Create a feature branch
+2. Make your changes
+3. Test locally if possible
+4. Create a pull request
+5. Review CI/CD pipeline results
+6. Merge to main after approval
+
+## 📝 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
 # 🎯 Pinky Promise App
 
 A production-ready full-stack web application with React frontend, Node.js backend, and PostgreSQL database, deployed on Google Cloud Platform with Kubernetes.

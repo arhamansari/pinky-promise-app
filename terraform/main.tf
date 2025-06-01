@@ -23,11 +23,12 @@ terraform {
     }
   }
 
-  # Backend configuration - uncomment and configure for production
-  # backend "gcs" {
-  #   bucket = "your-terraform-state-bucket"
-  #   prefix = "terraform/state"
-  # }
+  # Backend configuration for CI/CD
+  backend "gcs" {
+    # Bucket and prefix will be provided via backend-config in CI/CD
+    # bucket = "your-terraform-state-bucket"  # Set via CI/CD
+    # prefix = "terraform/state"              # Set via CI/CD
+  }
 }
 
 # Provider configurations
