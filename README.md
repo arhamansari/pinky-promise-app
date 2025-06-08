@@ -1,3 +1,342 @@
+# Pinky Promise Application
+
+A full-stack web application with Node.js backend and React frontend, deployed on Google Kubernetes Engine using ArgoCD for GitOps.
+
+## Repository Structure
+
+```
+.
+├── backend/                   # Node.js/Express backend
+│   ├── src/                  # Source code
+│   ├── tests/                # Test files
+│   ├── Dockerfile            # Backend container image
+│   └── package.json          # Dependencies
+├── frontend/                  # React frontend
+│   ├── src/                  # Source code
+│   ├── public/               # Static assets
+│   ├── Dockerfile            # Frontend container image
+│   └── package.json          # Dependencies
+├── k8s/                      # Kubernetes manifests
+│   ├── base/                 # Base Kustomize manifests
+│   └── overlays/             # Environment-specific overlays
+│       ├── development/      # Dev environment
+│       ├── staging/          # Staging environment
+│       └── production/       # Production environment
+├── .github/                  # GitHub Actions workflows
+│   └── workflows/            # CI/CD pipelines
+├── docker-compose.yml        # Local development setup
+└── README.md                 # This file
+```
+
+## Prerequisites
+
+- **Docker** and **Docker Compose**
+- **Node.js** (v18+) and **npm**
+- **kubectl** for Kubernetes interaction
+- **kustomize** for manifest management
+- Access to the GKE cluster (configured via infrastructure repo)
+
+## Local Development
+
+### Using Docker Compose (Recommended)
+
+1. **Clone the repository**
+   ```bash
+   git clone <this-repo>
+   cd pinky-promise-app
+   ```
+
+2. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your local configuration
+   ```
+
+3. **Start the application**
+   ```bash
+   docker-compose up --build
+   ```
+
+4. **Access the application**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:3001
+   - Database: localhost:5432
+
+### Manual Setup
+
+1. **Start PostgreSQL database**
+   ```bash
+   docker run --name postgres \
+     -e POSTGRES_DB=pinky_promise \
+     -e POSTGRES_USER=postgres \
+     -e POSTGRES_PASSWORD=password \
+     -p 5432:5432 -d postgres:14
+   ```
+
+2. **Setup Backend**
+   ```bash
+   cd backend
+   npm install
+   npm run dev
+   ```
+
+3. **Setup Frontend**
+   ```bash
+   cd frontend
+   npm install
+   npm start
+   ```
+
+## Container Images
+
+### Building Images
+
+```bash
+# Build backend image
+docker build -t gcr.io/PROJECT_ID/pinky-promise-backend:latest ./backend
+
+# Build frontend image
+docker build -t gcr.io/PROJECT_ID/pinky-promise-frontend:latest ./frontend
+
+# Push images to GCR
+docker push gcr.io/PROJECT_ID/pinky-promise-backend:latest
+docker push gcr.io/PROJECT_ID/pinky-promise-frontend:latest
+```
+
+### Automated Builds
+
+GitHub Actions automatically builds and pushes images on:
+- **Push to main**: Tagged as `latest`
+- **Push to develop**: Tagged as `dev`
+- **Pull requests**: Tagged as `pr-{number}`
+- **Git tags**: Tagged as the tag name
+
+## Kubernetes Deployment
+
+### Manual Deployment
+
+```bash
+# Deploy to development
+kustomize build k8s/overlays/development | kubectl apply -f -
+
+# Deploy to production
+kustomize build k8s/overlays/production | kubectl apply -f -
+```
+
+### ArgoCD GitOps (Recommended)
+
+ArgoCD automatically deploys applications when changes are pushed to this repository.
+
+1. **Monitor deployment**
+   ```bash
+   # Port forward to ArgoCD UI
+   kubectl port-forward svc/argocd-server -n argocd 8080:443
+   ```
+
+2. **Access ArgoCD**
+   - URL: https://localhost:8080
+   - Username: `admin`
+   - Password: Get from cluster
+     ```bash
+     kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+     ```
+
+## Environment Configuration
+
+### Development
+- **Namespace**: `development`
+- **Replicas**: 1 per service
+- **Domain**: `dev.pinky-promise.example.com`
+- **Image Tag**: `dev`
+
+### Staging
+- **Namespace**: `staging`
+- **Replicas**: 2 per service
+- **Domain**: `staging.pinky-promise.example.com`
+- **Image Tag**: `staging`
+
+### Production
+- **Namespace**: `production`
+- **Replicas**: 3 per service
+- **Domain**: `pinky-promise.example.com`
+- **Image Tag**: `latest`
+
+## CI/CD Pipeline
+
+### GitHub Actions Workflows
+
+1. **CI Pipeline** (`.github/workflows/ci.yml`)
+   - Runs on every push and PR
+   - Linting, testing, security scanning
+   - Build and push container images
+
+2. **CD Pipeline** (`.github/workflows/cd.yml`)
+   - Deploys to environments based on branch
+   - Updates Kubernetes manifests
+   - Triggers ArgoCD sync
+
+### Branch Strategy
+
+- **main**: Production deployments
+- **develop**: Development deployments  
+- **feature/***: Feature branches (PR to develop)
+- **hotfix/***: Critical fixes (PR to main)
+
+## Monitoring & Observability
+
+### Application Metrics
+
+- **Health Checks**: `/health` and `/ready` endpoints
+- **Prometheus Metrics**: Exposed on `/metrics`
+- **Structured Logging**: JSON format for easy parsing
+
+### Kubernetes Resources
+
+- **Liveness Probes**: Restart unhealthy containers
+- **Readiness Probes**: Route traffic only to ready pods
+- **Resource Limits**: Prevent resource exhaustion
+- **Security Context**: Run as non-root with minimal privileges
+
+## Security
+
+### Container Security
+
+- ✅ Non-root user execution
+- ✅ Read-only root filesystem
+- ✅ Minimal base images
+- ✅ No shell access
+- ✅ Security scanning in CI
+
+### Kubernetes Security
+
+- ✅ Service accounts with minimal permissions
+- ✅ Workload Identity for GCP integration
+- ✅ Secret management via External Secrets
+- ✅ Network policies (when enabled)
+- ✅ Pod security standards
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Image Pull Errors**
+   ```bash
+   # Check if image exists
+   gcloud container images list --repository=gcr.io/PROJECT_ID
+   
+   # Verify service account permissions
+   kubectl describe sa pinky-promise-backend
+   ```
+
+2. **Database Connection Issues**
+   ```bash
+   # Check secrets
+   kubectl get secret app-secrets -o yaml
+   
+   # Test database connectivity
+   kubectl run db-test --rm -it --image=postgres:14 -- \
+     psql postgresql://USER:PASS@HOST:5432/DB
+   ```
+
+3. **ArgoCD Sync Issues**
+   ```bash
+   # Force sync
+   argocd app sync pinky-promise-app
+   
+   # Check application status
+   argocd app get pinky-promise-app
+   ```
+
+### Debug Commands
+
+```bash
+# View pod logs
+kubectl logs -f deployment/pinky-promise-backend
+
+# Check pod status
+kubectl get pods -l app=pinky-promise-backend
+
+# Describe deployment
+kubectl describe deployment pinky-promise-backend
+
+# Check ingress status
+kubectl get ingress
+
+# View events
+kubectl get events --sort-by='.lastTimestamp'
+```
+
+## Development Guidelines
+
+### Code Standards
+
+- **ESLint**: Enforced in CI
+- **Prettier**: Code formatting
+- **Jest**: Unit testing
+- **Conventional Commits**: Commit message format
+
+### Testing
+
+```bash
+# Backend tests
+cd backend && npm test
+
+# Frontend tests
+cd frontend && npm test
+
+# E2E tests (if implemented)
+npm run test:e2e
+```
+
+### Database Migrations
+
+```bash
+# Run migrations
+cd backend && npm run migrate
+
+# Create new migration
+npm run migrate:create -- migration_name
+```
+
+## Contributing
+
+1. **Fork the repository**
+2. **Create a feature branch**
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+3. **Make your changes**
+4. **Run tests**
+   ```bash
+   npm test
+   ```
+5. **Commit your changes**
+   ```bash
+   git commit -m "feat: add your feature"
+   ```
+6. **Push to your fork**
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+7. **Create a Pull Request**
+
+## Related Repositories
+
+- **Infrastructure**: [pinky-promise-infrastructure](../pinky-promise-infrastructure) - Terraform and ArgoCD configurations
+
+## Support
+
+For issues and questions:
+
+1. Check the troubleshooting section
+2. Review application logs
+3. Check ArgoCD application status
+4. Create an issue in this repository
+
+---
+
+**Note**: This application is configured for production use with proper security, monitoring, and scalability features. For local development, use the Docker Compose setup for simplicity.
+
 # Pinky Promise Infrastructure & GitOps
 
 This repository contains the infrastructure-as-code and GitOps configuration for the Pinky Promise application.
