@@ -1,3 +1,92 @@
+# Pinky Promise App
+
+A sample application demonstrating GitOps deployment with ArgoCD on GKE.
+
+## Project Structure
+
+```
+pinky-promise-app/
+├── src/                    # Application source code
+├── Dockerfile             # Container image definition
+├── k8s/                   # Kubernetes manifests
+│   ├── base/              # Base Kubernetes resources
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   ├── configmap.yaml
+│   │   └── kustomization.yaml
+│   └── overlays/          # Environment-specific configurations
+│       ├── development/
+│       ├── staging/
+│       └── production/
+├── .github/workflows/     # CI/CD pipelines
+└── docs/                  # Documentation
+```
+
+## Getting Started
+
+### Prerequisites
+- GKE cluster with ArgoCD installed
+- Docker for building images
+- kubectl configured for your cluster
+
+### Deployment
+
+This application is deployed using GitOps principles via ArgoCD:
+
+1. **Code Changes**: Push code changes to this repository
+2. **CI Pipeline**: GitHub Actions builds and pushes container images
+3. **GitOps Sync**: ArgoCD automatically syncs Kubernetes manifests
+4. **Deployment**: Application is deployed to the cluster
+
+### Environments
+
+- **Development**: `k8s/overlays/development/`
+- **Staging**: `k8s/overlays/staging/`
+- **Production**: `k8s/overlays/production/`
+
+### ArgoCD Application
+
+The application is configured in ArgoCD to watch the `k8s/overlays/production` directory for changes.
+
+## Development
+
+### Local Development
+
+```bash
+# Build the application
+docker build -t pinky-promise-app .
+
+# Run locally
+docker run -p 8080:8080 pinky-promise-app
+```
+
+### CI/CD
+
+The CI/CD pipeline is configured to:
+1. Build Docker images on every push
+2. Push images to Google Container Registry
+3. Update Kubernetes manifests with new image tags
+4. ArgoCD automatically detects and deploys changes
+
+## Monitoring
+
+The application includes:
+- Health check endpoints
+- Prometheus metrics
+- Structured logging
+- Kubernetes probes
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+## License
+
+MIT License
+
 # Pinky Promise Application
 
 A full-stack web application with Node.js backend and React frontend, deployed on Google Kubernetes Engine using ArgoCD for GitOps.
